@@ -47,6 +47,14 @@ Two answers trip people up most often:
   mentioned when the image needs attention. It is credit, not access: changes to a Labs image always go through
   pull requests.
 
+**Package it yourself first, if you like.** The [Labs starter kit](https://github.com/linuxserverlabs-playground/docker-template)
+is a template repository with a working image layout: copy it into your own account or organisation, fill it in for
+your application, and build and run the image on your own machine
+([GETTING-STARTED.md](https://github.com/linuxserverlabs-playground/docker-template/blob/main/GETTING-STARTED.md)
+walks through it). Then put your repository's URL in the form's **Working repository** field: the team starts the
+Labs image from your `image.yml`, Dockerfiles and `root/` instead of from scratch. It is optional; a proposal without
+one is built from the form's answers.
+
 If you work with an AI coding agent, the [LinuxServer harness](https://github.com/linuxserver-playground/harness)
 can walk you through making your application easy to self-host and can fill in the form for you.
 
@@ -54,7 +62,9 @@ can walk you through making your application easy to self-host and can fill in t
 
 1. **The automatic check.** As soon as you submit, a check reads the form and compares it with the real upstream:
    who owns the repository, the licence GitHub detects, the latest stable release and its asset names, whether the
-   name is taken, and that the maintainers exist. It posts one comment listing what passed and what is missing, and
+   name is taken, and that the maintainers exist. When you give a working repository, it also confirms that the
+   repository is public with `image.yml` and the Dockerfiles at its root; that only ever warns, never holds a
+   proposal back. It posts one comment listing what passed and what is missing, and
    labels the issue `meets-bar` or `needs-info`. Edit the issue to fix anything it flags; the check runs again on
    every edit and updates the same comment. Upstreams that are not on GitHub get what the check can see, and a team
    member checks the rest by hand.
@@ -84,7 +94,7 @@ mentions its maintainers. An image that stays broken is archived; its page stays
 
 | Label | Meaning |
 | --- | --- |
-| `proposal` | Added by the form. Only issues with it are checked. |
+| `proposal` | Added by the form. Only issues with it are checked; an issue filed without the form whose title starts with `Proposal:` gets it from the check. |
 | `meets-bar` | The automatic check found nothing missing. Waiting for a team member to try it. |
 | `needs-info` | The automatic check found something missing, or could not run. Its comment says what. |
 | `accepted` | A team member created the image repository and opened its first pull request. |

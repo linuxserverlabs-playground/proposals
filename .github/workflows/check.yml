@@ -20,7 +20,11 @@ concurrency:
 
 jobs:
   check:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.issue.labels.*.name, 'proposal')
+    # Labelled by the form, or titled "Proposal: <name>" when filed without it (the script then adds the label).
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || contains(github.event.issue.labels.*.name, 'proposal')
+      || startsWith(github.event.issue.title, 'Proposal:')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

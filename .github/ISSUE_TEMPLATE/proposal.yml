@@ -123,6 +123,19 @@ body:
       required: true
 
   - type: input
+    id: working_repo
+    attributes:
+      label: Working repository
+      description: >-
+        Optional. If you have packaged the application yourself from the
+        [Labs starter kit](https://github.com/linuxserverlabs-playground/docker-template), the URL of your
+        repository. It must be public, with image.yml and the Dockerfiles at its root; the team starts the Labs image
+        from it.
+      placeholder: https://github.com/myorg/docker-myapp
+    validations:
+      required: false
+
+  - type: input
     id: web_port
     attributes:
       label: Web interface port

@@ -38,6 +38,10 @@ Desktop application (selkies)
 
 Rust, a native desktop program. Each release ships a deb per architecture; install it with apt and start `photocraft`.
 
+### Working repository
+
+_No response_
+
 ### Web interface port
 
 _No response_

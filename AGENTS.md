@@ -10,9 +10,15 @@ AGENTS.md; the Labs design is its `docs/labs.md`.
   label text (GitHub renders a submission as `### <label>` blocks, an empty answer as `_No response_`). Never
   rename a label or option without changing every consumer in the same push.
 - `scripts/check_proposal.py`: run by `.github/workflows/check.yml` on opened, edited and reopened issues labelled
-  `proposal` (or by `workflow_dispatch` with an issue number). Standard library only, `GITHUB_TOKEN` only. It keeps
-  one comment, found by the `<!-- labs-proposal-check -->` marker, and sets exactly one of `meets-bar` and
-  `needs-info`.
+  `proposal` or titled `Proposal: ...` (or by `workflow_dispatch` with an issue number). An issue filed without the
+  form (`gh issue create --title "Proposal: <name>" --body-file ...`, the harness's fallback, same `### <label>`
+  body) has no label, so the script adds `proposal` itself. Standard library only (PyYAML is used when present, for
+  the working repository's `image.yml`), `GITHUB_TOKEN` only. It keeps one comment, found by the
+  `<!-- labs-proposal-check -->` marker, and sets exactly one of `meets-bar` and `needs-info`.
+- The optional **Working repository** answer (the developer's copy of `docker-template`) is checked for existing,
+  public, `image.yml` and both Dockerfiles at its root (only `Dockerfile` when its image.yml is amd64 only), and an
+  `image.yml` that parses. It reports pass or warning only and never changes the label; with no answer it adds no
+  row.
 - `tests/`: unit tests with real-looking form bodies in `tests/fixtures/`, and a fake API client.
 
 ## Rules

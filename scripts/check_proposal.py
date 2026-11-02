@@ -5,11 +5,12 @@ Run by .github/workflows/check.yml. It reads the event payload (GITHUB_EVENT_PAT
 it against GitHub's REST API with GITHUB_TOKEN, keeps one comment on the issue up to date and labels the issue
 meets-bar or needs-info. The issue body is untrusted: it is only ever parsed as data here.
 
-Standard library only.
+Standard library only (PyYAML, when present, only makes the working repository's image.yml check stricter).
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -50,6 +51,7 @@ FIELDS = {
     "asset_arm64": "arm64 release asset",
     "app_type": "Application type",
     "runtime": "Runtime and install",
+    "working_repo": "Working repository",
     "web_port": "Web interface port",
     "state_paths": "Where it writes state",
     "env_vars": "Required environment variables",
@@ -78,6 +80,12 @@ BUILD_SOURCE = "Source release"
 APP_WEB = "Web application"
 APP_DESKTOP = "Desktop application (selkies)"
 NO_RESPONSE = "_No response_"
+# An issue filed without the form (`gh issue create --title "Proposal: <name>" --body-file ...`, the harness's fallback)
+# has no proposal label; a title starting with this marks it as one, and the check adds the label.
+TITLE_PREFIX = "proposal:"
+# What the working repository needs at its root, as docker-template lays it out.
+WORKING_FILES = ("image.yml", "Dockerfile", "Dockerfile.aarch64")
+WORKING_KEYS = ("schema", "name", "upstream", "build")
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
@@ -505,12 +513,102 @@ def check_maintainers(ctx: Context, gh: GitHub) -> Check:
     return Check(title, PASS, ", ".join(found) + ".")
 
 
+def _yaml_summary(text: str) -> tuple[bool, str, dict | None]:
+    """(looks right, what was found, the parsed mapping or None). Parses with PyYAML when it is installed; otherwise
+    only looks for the manifest's top-level keys."""
+    try:
+        import yaml  # noqa: PLC0415  (optional: GitHub's runners have it, the tests may not)
+    except ImportError:
+        yaml = None
+    if yaml is not None:
+        try:
+            data = yaml.safe_load(text)
+        except yaml.YAMLError as err:
+            mark = getattr(err, "problem_mark", None)
+            where = f" at line {mark.line + 1}" if mark is not None else ""
+            return False, f"image.yml does not parse as YAML{where}", None
+        if not isinstance(data, dict):
+            return False, "image.yml is not a YAML mapping", None
+        missing = [key for key in WORKING_KEYS if key not in data]
+        if missing:
+            return False, "image.yml parses but has no " + ", ".join(f"`{key}`" for key in missing), data
+        return True, "image.yml parses", data
+    keys = set(re.findall(r"^([a-z_]+):", text, flags=re.M))
+    missing = [key for key in WORKING_KEYS if key not in keys]
+    if missing:
+        return False, "image.yml has no top-level " + ", ".join(f"`{key}`" for key in missing), None
+    return True, "image.yml has the manifest's top-level keys", None
+
+
+def check_working_repo(ctx: Context, gh: GitHub) -> Check | None:
+    """The developer's own repository made from docker-template, when the form gives one. Only ever a pass or a
+    warning: the field is optional, and a member looks at the repository during the trial anyway."""
+    title = "Working repository"
+    url = ctx.form.get("working_repo", "").strip()
+    if not url:
+        return None
+    host, slug = parse_upstream(url)
+    if host != "github.com":
+        return Check(title, WARN, f"{code(url)} is not on GitHub, so a member looks at it during the trial.")
+    if not slug:
+        return Check(title, WARN, f"{code(url)} is not a repository URL (https://github.com/<owner>/<repo>).")
+    try:
+        status, repo = gh.get(f"repos/{slug}")
+    except ApiError as err:
+        return Check(title, WARN, f"Could not look up {code(slug)}: {err}.")
+    if status == 404 or not repo:
+        return Check(title, WARN, f"{code(slug)} does not exist on GitHub, or is private. Make it public so the "
+                                  "team can start from it.")
+    where = link(repo["full_name"], repo["html_url"])
+    if repo.get("private") or repo.get("visibility", "public") != "public":
+        return Check(title, WARN, f"{where} is not public. Make it public so the team can start from it.")
+    found: dict[str, dict] = {}
+    try:
+        for name in WORKING_FILES:
+            status, content = gh.get(f"repos/{repo['full_name']}/contents/{name}")
+            if status == 200 and isinstance(content, dict) and content.get("type") == "file":
+                found[name] = content
+    except ApiError as err:
+        return Check(title, WARN, f"{where} is public, but its files could not be read: {err}.")
+    problems, facts = [], []
+    data = None
+    manifest = found.get("image.yml")
+    if manifest:
+        try:
+            text = base64.b64decode(manifest.get("content") or "").decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            text = None
+        if text is None:
+            problems.append("image.yml could not be read as text")
+        else:
+            ok, summary, data = _yaml_summary(text)
+            (facts if ok else problems).append(summary)
+    platforms = ((data or {}).get("build") or {}).get("platforms") if isinstance(data, dict) else None
+    needed = list(WORKING_FILES)
+    if isinstance(platforms, list) and "arm64" not in platforms:
+        needed.remove("Dockerfile.aarch64")  # amd64 only is allowed
+    missing = [name for name in needed if name not in found]
+    if missing:
+        problems.insert(0, "no " + ", ".join(f"`{name}`" for name in missing) + " at its root")
+    if isinstance(data, dict):
+        name = str(data.get("name", ""))
+        if name and name != ctx.form.get("name", "").strip():
+            problems.append(f"its image.yml names the image {code(name)}, not the proposal's name")
+    if problems:
+        return Check(title, WARN, f"{where}: " + "; ".join(problems) + ". A member checks it during the trial.")
+    return Check(title, PASS, f"{where} is public, with " + ", ".join(f"`{name}`" for name in needed)
+                              + f" at its root; {facts[0] if facts else 'image.yml found'}.")
+
+
 def run_checks(form: dict, gh: GitHub, accepted: bool = False) -> tuple[list[Check], Context]:
     ctx = Context(form=form, accepted=accepted)
     checks = [check_complete(ctx), check_bar(ctx), check_name(ctx, gh), check_upstream(ctx, gh), check_licence(ctx),
               check_release(ctx, gh)]
     checks += check_assets(ctx)
     checks += [check_app_type(ctx), check_maintainers(ctx, gh)]
+    working = check_working_repo(ctx, gh)
+    if working:
+        checks.append(working)
     return checks, ctx
 
 
@@ -603,6 +701,11 @@ def set_label(gh: GitHub, repo: str, number: int, label: str, current: set[str])
         gh.request("DELETE", f"repos/{repo}/issues/{number}/labels/{urllib.parse.quote(other)}")
 
 
+def titled_proposal(issue: dict) -> bool:
+    """Filed without the form, but titled as a proposal ("Proposal: <name>"), as the workflow's own filter is."""
+    return (issue.get("title") or "").strip().lower().startswith(TITLE_PREFIX)
+
+
 def load_issue(gh: GitHub, repo: str, event: dict) -> dict | None:
     if event.get("issue"):
         return event["issue"]
@@ -636,8 +739,16 @@ def main() -> int:
         return 1
     labels = {label["name"] for label in issue.get("labels", [])}
     if LABEL_PROPOSAL not in labels:
-        print(f"Issue {issue['number']} is not labelled {LABEL_PROPOSAL}; nothing to check.")
-        return 0
+        if not titled_proposal(issue):
+            print(f"Issue {issue['number']} is not labelled {LABEL_PROPOSAL}; nothing to check.")
+            return 0
+        try:
+            ensure_label(gh, repo, LABEL_PROPOSAL)
+            gh.request("POST", f"repos/{repo}/issues/{issue['number']}/labels", {"labels": [LABEL_PROPOSAL]})
+        except ApiError as err:
+            print(f"Could not label issue {issue['number']} {LABEL_PROPOSAL}: {err}", file=sys.stderr)
+            return 1
+        labels.add(LABEL_PROPOSAL)
 
     form = parse_form(issue.get("body"))
     checks, ctx = run_checks(form, gh, accepted=LABEL_ACCEPTED in labels)

@@ -1,6 +1,11 @@
+import base64
 import copy
+import json
+import os
 import sys
+import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -73,6 +78,7 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(form["app_type"], cp.APP_DESKTOP)
         self.assertEqual(form["web_port"], "")
         self.assertEqual(form["env_vars"], "")
+        self.assertEqual(form["working_repo"], "")
         self.assertEqual(form["maintainers"], "thelamer")
         self.assertEqual(len(form["bar"]), len(cp.BAR))
         self.assertTrue(all(form["bar"].values()))
@@ -287,6 +293,138 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(named["Maintainers"].status, cp.ERROR)
         self.assertEqual(cp.decide(checks), cp.LABEL_NEEDS)
         self.assertIn("could not run", cp.render(checks, ctx, cp.LABEL_NEEDS))
+
+
+WORKING_MANIFEST = """schema: 1
+name: photocraft
+upstream:
+  version:
+    type: github_release
+    repo: storytold/photocraft
+build:
+  base: selkies
+  platforms:
+  - amd64
+  - arm64
+"""
+
+
+def contents(text):
+    return {"type": "file", "content": base64.b64encode(text.encode()).decode()}
+
+
+def working_api(manifest=WORKING_MANIFEST, files=("image.yml", "Dockerfile", "Dockerfile.aarch64"), **repo):
+    slug = "myorg/docker-photocraft"
+    answers = dict(PHOTOCRAFT_API)
+    answers[f"repos/{slug}"] = {"full_name": slug, "html_url": f"https://github.com/{slug}", "private": False,
+                                "visibility": "public", **repo}
+    for name in files:
+        answers[f"repos/{slug}/contents/{name}"] = contents(manifest if name == "image.yml" else "FROM x\n")
+    return answers
+
+
+class WorkingRepoTest(unittest.TestCase):
+    def run_with(self, answers, url="https://github.com/myorg/docker-photocraft"):
+        body = fixture("photocraft.md").replace("### Working repository\n\n_No response_",
+                                                f"### Working repository\n\n{url}")
+        checks, _ = cp.run_checks(cp.parse_form(body), FakeGitHub(answers))
+        return checks, by_name(checks).get("Working repository")
+
+    def test_not_given_adds_no_row(self):
+        checks, _ = cp.run_checks(cp.parse_form(fixture("photocraft.md")), FakeGitHub(PHOTOCRAFT_API))
+        self.assertNotIn("Working repository", by_name(checks))
+
+    def test_good_repository_passes(self):
+        checks, check = self.run_with(working_api())
+        self.assertEqual(check.status, cp.PASS, check.detail)
+        self.assertIn("Dockerfile.aarch64", check.detail)
+        self.assertEqual(cp.decide(checks), cp.LABEL_MEETS)
+
+    def test_amd64_only_needs_no_aarch64_dockerfile(self):
+        manifest = WORKING_MANIFEST.replace("  - arm64\n", "")
+        _, check = self.run_with(working_api(manifest, files=("image.yml", "Dockerfile")))
+        self.assertEqual(check.status, cp.PASS, check.detail)
+
+    def test_problems_only_warn(self):
+        cases = {
+            "missing": dict(PHOTOCRAFT_API),
+            "private": working_api(private=True, visibility="private"),
+            "no dockerfiles": working_api(files=("image.yml",)),
+            "no image.yml": working_api(files=("Dockerfile", "Dockerfile.aarch64")),
+            "bad yaml": working_api("name: [unclosed\n"),
+            "other name": working_api(WORKING_MANIFEST.replace("name: photocraft", "name: other")),
+            "api error": {**working_api(), "repos/myorg/docker-photocraft/contents/Dockerfile":
+                          cp.ApiError("GET contents: HTTP 502")},
+        }
+        for label, answers in cases.items():
+            checks, check = self.run_with(answers)
+            self.assertEqual(check.status, cp.WARN, f"{label}: {check.detail}")
+            self.assertEqual(cp.decide(checks), cp.LABEL_MEETS, label)
+        for url in ("https://codeberg.org/myorg/docker-photocraft", "https://github.com/myorg"):
+            _, check = self.run_with(dict(PHOTOCRAFT_API), url=url)
+            self.assertEqual(check.status, cp.WARN, url)
+
+    def test_without_pyyaml_the_keys_are_checked(self):
+        with mock.patch.dict(sys.modules, {"yaml": None}):
+            ok, summary, _ = cp._yaml_summary(WORKING_MANIFEST)
+            self.assertTrue(ok, summary)
+            ok, summary, _ = cp._yaml_summary("name: x\n")
+            self.assertFalse(ok)
+            self.assertIn("`schema`", summary)
+
+
+class RecordingGitHub(FakeGitHub):
+    def __init__(self, answers):
+        super().__init__(answers)
+        self.writes = []
+
+    def request(self, method, path, data=None, ok=(200, 201, 204), attempts=3):
+        if method == "GET":
+            return self.get(path)
+        self.writes.append((method, path, data))
+        return 201, {}
+
+
+class MainTest(unittest.TestCase):
+    def run_main(self, issue):
+        gh = RecordingGitHub(PHOTOCRAFT_API)
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+            json.dump({"issue": issue}, handle)
+        env = {"GITHUB_REPOSITORY": "example/proposals", "GITHUB_EVENT_PATH": handle.name, "GITHUB_TOKEN": ""}
+        try:
+            with mock.patch.dict(os.environ, env, clear=False), mock.patch.object(cp, "GitHub", lambda *a: gh):
+                status = cp.main()
+        finally:
+            os.unlink(handle.name)
+        return status, gh.writes
+
+    def issue(self, title, labels=()):
+        return {"number": 7, "title": title, "body": fixture("photocraft.md"),
+                "labels": [{"name": name} for name in labels]}
+
+    def test_titled_proposal_without_the_label_is_labelled_and_checked(self):
+        status, writes = self.run_main(self.issue("Proposal: photocraft"))
+        self.assertEqual(status, 0)
+        added = [data["labels"] for method, path, data in writes if path.endswith("/issues/7/labels")]
+        self.assertEqual(added[0], [cp.LABEL_PROPOSAL])
+        self.assertIn([cp.LABEL_MEETS], added)
+        self.assertTrue(any(path.endswith("/issues/7/comments") for _, path, _ in writes))
+
+    def test_labelled_proposal_is_not_labelled_again(self):
+        status, writes = self.run_main(self.issue("Something else", labels=[cp.LABEL_PROPOSAL]))
+        self.assertEqual(status, 0)
+        added = [data["labels"] for method, path, data in writes if path.endswith("/issues/7/labels")]
+        self.assertNotIn([cp.LABEL_PROPOSAL], added)
+
+    def test_other_issues_are_left_alone(self):
+        status, writes = self.run_main(self.issue("Question about Labs"))
+        self.assertEqual((status, writes), (0, []))
+
+    def test_titled_proposal(self):
+        self.assertTrue(cp.titled_proposal({"title": "proposal: myapp"}))
+        self.assertTrue(cp.titled_proposal({"title": "  Proposal: myapp"}))
+        self.assertFalse(cp.titled_proposal({"title": "A proposal: myapp"}))
+        self.assertFalse(cp.titled_proposal({"title": None}))
 
 
 class RenderTest(unittest.TestCase):
