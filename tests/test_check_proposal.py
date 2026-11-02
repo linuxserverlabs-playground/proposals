@@ -149,7 +149,8 @@ class CheckTest(unittest.TestCase):
         # Once accepted, the Labs repository is the proposal's own.
         checks, ctx, _ = self.run_photocraft(answers=answers, accepted=True)
         self.assertEqual(by_name(checks)["Image name"].status, cp.PASS)
-        self.assertTrue(ctx.notes)
+        self.assertEqual(ctx.labs_repo, f"https://github.com/{cp.LABS_ORG}/docker-photocraft")
+        self.assertIn("**Accepted.**", cp.render(checks, ctx, cp.decide(checks)))
 
     def test_invalid_names(self):
         for bad in ("PhotoCraft", "docker-photocraft", "photo_craft", "-photo"):

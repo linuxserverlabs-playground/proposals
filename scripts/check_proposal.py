@@ -241,6 +241,7 @@ class Context:
     accepted: bool = False
     repo: dict | None = None
     repo_state: str = ""  # "github", "other-host", "missing", "error"
+    labs_repo: str = ""  # the Labs repository created for an accepted proposal
     release: dict | None = None
     notes: list[str] = field(default_factory=list)
 
@@ -292,7 +293,7 @@ def check_name(ctx: Context, gh: GitHub) -> Check:
         if status == 404:
             continue
         if org == LABS_ORG and ctx.accepted:
-            ctx.notes.append(f"{link(repo, f'https://github.com/{repo}')} was created for this proposal.")
+            ctx.labs_repo = (data or {}).get("html_url", f"https://github.com/{repo}")
             continue
         url = (data or {}).get("html_url", f"https://github.com/{repo}")
         taken.append(link(repo, url))
@@ -300,6 +301,9 @@ def check_name(ctx: Context, gh: GitHub) -> Check:
         return Check(title, FAIL, f"{code(name)} is taken: " + ", ".join(taken) + ". Choose another name.")
     if errors:
         return Check(title, ERROR, "Could not look up " + ", ".join(errors) + ".")
+    if ctx.labs_repo:
+        return Check(title, PASS, f"{code(name)} is this proposal's: {link(f'{LABS_ORG}/docker-{name}', ctx.labs_repo)}"
+                                  " was created for it. It is free in LinuxServer.io and its playground.")
     return Check(title, PASS, f"{code(name)} is free in Labs, LinuxServer.io and its playground.")
 
 
@@ -523,7 +527,10 @@ def render(checks: list[Check], ctx: Context, label: str, run_url: str = "") -> 
     errored = [c for c in checks if c.status == ERROR]
     manual = [c for c in checks if c.status == MANUAL]
     lines = [MARKER, "## Proposal check", ""]
-    if label == LABEL_MEETS:
+    if label == LABEL_MEETS and ctx.labs_repo:
+        lines.append(f"**Accepted.** A member created {link(f'docker-{name}', ctx.labs_repo)} for this proposal. "
+                     "Its first pull request builds the image and posts a test report for review.")
+    elif label == LABEL_MEETS:
         lines.append("**Meets the bar as far as an automatic check can tell.** A member will try the image in a "
                      f"sandbox. If it works, they create `docker-{name}` in Labs and open its first pull request "
                      "from this issue, which builds the image and posts a test report for review.")
