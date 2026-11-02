@@ -5,7 +5,8 @@ self-hosted applications that are new or not yet well known. The images are buil
 pipeline as LinuxServer.io's, follow the same container design, and live at
 `ghcr.io/linuxserverlabs-playground/<name>`. An image that does well in Labs can later move to LinuxServer.io.
 
-Anyone can propose an application, including its own developers. This repository is where proposals are filed.
+Anyone can propose an application, including its own developers. This repository is where proposals are filed. The
+full guide, from what qualifies to graduating, is [Get your app into Labs](https://linuxserverlabs-playground.github.io/site/propose/).
 
 **[Open a proposal](https://github.com/linuxserverlabs-playground/proposals/issues/new?template=proposal.yml)**
 
