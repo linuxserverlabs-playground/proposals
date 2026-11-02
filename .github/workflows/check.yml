@@ -1,0 +1,38 @@
+# Checks a proposal against its upstream and keeps one comment on the issue up to date. It uses GITHUB_TOKEN only.
+# The issue body is untrusted: it never reaches the shell, only the script, which reads the event payload as data.
+name: Check proposal
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Number of the proposal issue to check again
+        required: true
+        type: number
+
+permissions: {}
+
+concurrency:
+  group: check-proposal-${{ github.event.issue.number || inputs.issue }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.issue.labels.*.name, 'proposal')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check the proposal
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/check_proposal.py

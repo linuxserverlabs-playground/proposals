@@ -1,0 +1,224 @@
+name: Propose an image
+description: Ask for a LinuxServer Labs image of an open-source, self-hosted application.
+title: "Proposal: "
+labels: [proposal]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Labs publishes container images of self-hosted applications that are new or not yet proven, on the same
+        pipeline as LinuxServer.io. Read [how proposals work](https://github.com/linuxserverlabs-playground/proposals#readme)
+        first. A check runs as soon as you submit and comments with anything that is missing; it runs again every
+        time you edit the issue.
+
+  - type: input
+    id: name
+    attributes:
+      label: Image name
+      description: >-
+        The image and repository name: lowercase letters, digits and dashes, without `docker-`. It becomes
+        `ghcr.io/linuxserverlabs-playground/<name>`, and must not be taken in Labs or LinuxServer.io.
+      placeholder: myapp
+    validations:
+      required: true
+
+  - type: input
+    id: upstream_repo
+    attributes:
+      label: Upstream repository
+      description: >-
+        The URL of the project's source repository. It must belong to an organisation, not a personal account.
+      placeholder: https://github.com/myorg/myapp
+    validations:
+      required: true
+
+  - type: input
+    id: homepage
+    attributes:
+      label: Project homepage
+      description: The project's website or documentation, if it has one apart from the repository.
+      placeholder: https://myapp.example.org
+    validations:
+      required: false
+
+  - type: input
+    id: license
+    attributes:
+      label: Licence
+      description: >-
+        The project's licence as an [SPDX identifier](https://spdx.org/licenses/). It must be an approved
+        open-source licence.
+      placeholder: AGPL-3.0
+    validations:
+      required: true
+
+  - type: input
+    id: release_url
+    attributes:
+      label: Latest stable release
+      description: >-
+        The URL of the newest stable (not pre-release) release. The image follows these releases, so it needs a
+        versioned release, not a branch.
+      placeholder: https://github.com/myorg/myapp/releases/tag/v1.2.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build_from
+    attributes:
+      label: How the image installs it
+      description: >-
+        Release asset: the image downloads a ready-built file attached to each release (preferred). Source
+        release: the image builds the application from the release's source code.
+      options:
+        - Release asset
+        - Source release
+    validations:
+      required: true
+
+  - type: input
+    id: asset_amd64
+    attributes:
+      label: amd64 release asset
+      description: >-
+        For a release asset build: the file the image downloads for x86_64, as its name in the latest release
+        or a regular expression. Use `.*` where the version appears, so it matches every release.
+      placeholder: myapp-.*-linux-amd64.tar.gz
+    validations:
+      required: false
+
+  - type: input
+    id: asset_arm64
+    attributes:
+      label: arm64 release asset
+      description: >-
+        The same for aarch64. Leave it empty if the project ships no arm64 build; the image is then amd64 only.
+      placeholder: myapp-.*-linux-arm64.tar.gz
+    validations:
+      required: false
+
+  - type: dropdown
+    id: app_type
+    attributes:
+      label: Application type
+      description: >-
+        A web application serves its own interface on a port. A desktop application is a graphical program that
+        Labs runs in the browser on the Selkies base image (ports 3000 and 3001).
+      options:
+        - Web application
+        - Desktop application (selkies)
+    validations:
+      required: true
+
+  - type: textarea
+    id: runtime
+    attributes:
+      label: Runtime and install
+      description: >-
+        What the application is written in and how a release is installed and started: a deb, a tarball, a
+        single binary, Node.js, Python and so on. Include the start command and the runtime version it needs.
+      placeholder: |
+        Go, a single static binary in the release tarball. Start it with `myapp serve --data /config`.
+    validations:
+      required: true
+
+  - type: input
+    id: web_port
+    attributes:
+      label: Web interface port
+      description: >-
+        Required for a web application: the port its interface listens on inside the container. Leave it empty for
+        a desktop application.
+      placeholder: "8080"
+    validations:
+      required: false
+
+  - type: textarea
+    id: state_paths
+    attributes:
+      label: Where it writes state
+      description: >-
+        Every directory or file the application writes to (database, uploads, settings), and how to point it at
+        `/config`. Everything else in the container is thrown away on update.
+      placeholder: |
+        Everything under the directory given with --data. Uploads go to <data>/uploads.
+    validations:
+      required: true
+
+  - type: textarea
+    id: env_vars
+    attributes:
+      label: Required environment variables
+      description: >-
+        Variables the application needs to start, with a sensible default for each. Leave it empty if it needs
+        none.
+      placeholder: |
+        MYAPP_SECRET_KEY: any random string, generated on first start if unset.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database
+      description: >-
+        A Labs image has to work on its own, with no companion containers, so it needs an embedded database, no
+        database at all, or a server database the image runs itself as a fallback.
+      options:
+        - Embedded (SQLite or similar)
+        - None needed
+        - Server database baked into the image as a fallback
+    validations:
+      required: true
+
+  - type: textarea
+    id: first_run
+    attributes:
+      label: First run
+      description: >-
+        What happens the first time it starts: the default login or the setup wizard, and what you should see
+        when it works. A member follows this to try the image.
+      placeholder: |
+        Open http://host:8080, create the admin account in the wizard, and the empty dashboard appears.
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: A screenshot of the application running, pasted here, or a link to one.
+    validations:
+      required: false
+
+  - type: input
+    id: maintainers
+    attributes:
+      label: Maintainers
+      description: >-
+        GitHub logins to credit and mention on the image, comma separated, without `@`. Usually yourself. This is
+        credit, not access: changes still go through pull requests.
+      placeholder: octocat, hubot
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: bar
+    attributes:
+      label: The Labs bar
+      description: Every point has to hold. The check verifies what it can against the upstream repository.
+      options:
+        - label: The upstream repository is owned by an organisation, not a personal account
+          required: true
+        - label: It has an approved open-source licence
+          required: true
+        - label: It cuts stable, versioned releases
+          required: true
+        - label: Release asset names stay the same from release to release
+          required: true
+        - label: It works with just this container (no companion containers)
+          required: true
+        - label: It needs no account with a paid vendor service to work
+          required: true
+        - label: Any telemetry is disclosed and can be turned off
+          required: true

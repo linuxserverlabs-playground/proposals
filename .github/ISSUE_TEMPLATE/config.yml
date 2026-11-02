@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: LinuxServer Labs
+    url: https://linuxserverlabs-playground.github.io/site/
+    about: What Labs is, the bar an application has to meet, and the images already in Labs.
+  - name: LinuxServer.io documentation
+    url: https://linuxserver-playground.github.io/site/docs/
+    about: How LinuxServer.io images work, and how to contribute.
+  - name: Discord
+    url: https://linuxserver.io/discord
+    about: Ask the team and the community before you propose.
